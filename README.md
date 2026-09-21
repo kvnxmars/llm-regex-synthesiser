@@ -1,84 +1,76 @@
-# Regex Synthesis & Evaluation Pipeline
+# Evaluating the Formal Correctness, and Pedagogical Realism of LLM-Synthesized Regular Expression Assessment Materials
 
-Implementation scaffold for the Honours project comparing an LLM
-(GPT-4o)-synthesized regex-MCQ pipeline against the Ade-Ibijola (2018)
-symbolic CFG baseline, evaluated across three phases: formal correctness,
-success-filtered efficiency, and pedagogical plausibility
-(Okuboyejo et al., 2025 taxonomy).
+## Project Overview
+This repository contains the complete research pipeline for an Honours Computer Science research project at the University of Pretoria. The research empirically evaluates and compares **Symbolic Context-Free Grammar (CFG) question generation** against **Probabilistic Neural Generation (Large Language Models)** for Regular Expression (Regex) Multiple-Choice Questions (MCQs).
 
-## Files
+The evaluation is conducted across three primary analytical pillars:
+1. **Computational Efficiency:** Generation latency, token consumption profiles (cached vs. uncached inputs), and cost accounting ($USD / ZAR).
+2. **Formal Correctness ($\forall uto\exists val$ Framework):** Closed-loop verification of regular expression equivalence via product-automaton symmetric difference, option string execution against target state machines, and **Distractor Leak** detection.
+3. **Pedagogical Quality / Realism:** Automated classification of generated distractors against documented student error taxonomies (Okuboyejo et al., 2025), augmented with a supervisor-approved **Machine Noise / Gibberish** classification category.
 
-| File | Role |
-|---|---|
-| `regex_engine.py` | Regex parser -> Thompson NFA -> subset construction -> minimal DFA. No dependencies. This is the foundation everything else sits on. |
-| `equivalence.py` | Phase 1 (Consistency Rate): DFA language-equivalence via product-automaton symmetric difference. |
-| `cfg_generator.py` | Part 1: CFG regex generator for the 5 complexity levels (Literal, Character Classes, Quantifiers, Alternation, Nested). |
-| `mcq_search.py` | The Algorithm-5 analogue: state-space search for 1 valid + 4 invalid strings per regex, with distractors deliberately constructed to hit slight-error / logical / syntax-error categories. |
-| `llm_pipeline.py` | Part 2: GPT-4o prompting scaffold (JSON-structured output, token/latency capture). **Needs your own machine + API key** -- this sandbox can't reach api.openai.com. |
-| `efficiency.py` | Phase 2: timing/logging, shared schema for both systems, success-filtered aggregation. |
-| `plausibility.py` | Phase 3: rule-based classifier mapping distractors onto the Okuboyejo taxonomy; produces the Plausibility Score. |
-| `pipeline.py` | Orchestrator: runs the full 50-task experiment for one or both systems and writes combined results. |
+---
 
-## Quick start (fully offline, CFG baseline only)
+## Key Features & Architecture
 
-```bash
-python3 pipeline.py
-```
+- **Unified Google Colab Execution:** The entire end-to-end research pipeline—from PDF ingestion and LLM prompting to formal automata verification and taxonomy classification—runs sequentially inside interactive Jupyter Notebook cells.
+- **500 Ground-Truth Benchmark Tasks:** Evaluates LLMs over 500 authentic benchmark problems derived from South African higher education computing education literature (Ade-Ibijola, 2018):
+  - **250 Classical Single-Choice Tasks (Figure 7 Wrapper):** 1 correct answer and 4 distractors with explicit answer keys.
+  - **250 Multi-Answer Tasks (Figure 8 Wrapper):** "Select ALL that apply" items with variable numbers ($m \in [1,4]$) of correct options.
+- **Pure-Python Automata Verification Engine:** Zero-dependency formal verification suite implementing Thompson's NFA construction, Subset Construction (NFA $\rightarrow$ DFA), Hopcroft/Moore DFA minimization, and Product Automaton Symmetric Difference ($\text{L}(r_{\text{target}}) \Delta \text{L}(r_{\text{LLM}}) = \emptyset$).
+- **Programmatic Ground-Truth Resolution:** Multi-answer tasks extracted with unresolved keys (`labeled_correct: null`) are programmatically solved and verified by executing candidate strings against the target regex DFA.
+- **Comparative Model Benchmarking:** Dual-pipeline architecture supporting open-source models (**Llama 3.1 / Llama 3.3 via Groq**) and closed-source models (**GPT-4o via OpenAI**).
+- **Free-Tier Protection & Incremental Progress Logging:** Daily task slicing (`CURRENT_DAY`), rate-limit cool-down guards (`time.sleep(7)`), and continuous JSON state logging (`cumulative_tasks_llama.json` / `cumulative_tasks_openai.json`) prevent data loss during long execution runs or notebook disconnections.
 
-This generates 50 tasks (10 per complexity level), searches for MCQ
-answer sets, times every step, scores plausibility, and writes:
-- `cfg_baseline_results.json` -- one row per task, all three phases
-- `cfg_baseline_efficiency.csv` -- flat timing log
+---
 
-## Running the LLM side (on your own machine)
+## Notebook Structure
 
-```bash
-pip install -r requirements.txt
-export OPENAI_API_KEY=...
-python3 -c "
-from pipeline import run_llm_pipeline, save_results
-rows, log = run_llm_pipeline()
-save_results(rows, 'gpt4o_results.json')
-log.to_csv('gpt4o_efficiency.csv')
-"
-```
+| Cell | Name | Purpose | Output File |
+| :--- | :--- | :--- | :--- |
+| **Cell 1** | Environment Setup | Installs dependencies (`openai`, `fpdf2`, `pypdf`) and configures workspace imports. | — |
+| **Cell 2** | Dataset Ingestion & Cleansing | Ingests baseline PDFs, normalizes Unicode star operators ($\ast \rightarrow *$), strips lambda symbols ($\lambda$), and parses 500 tasks. | `baseline_tasks.json` |
+| **Cell 3** | Pedagogical Prompt Wrappers | Defines System Prompts enforcing core Formal Languages and Automata (FLA) operator constraints alongside Figure 7 and Figure 8 JSON schemas. | — |
+| **Cell 4A**| Groq / Llama-3.1 Pipeline | Executes free, high-speed Llama generation runs on Groq infrastructure with incremental progress logging. | `cumulative_tasks_llama.json` |
+| **Cell 4B**| OpenAI / Credit Pipeline | Executes GPT-4o generation runs using departmental credits with daily batch slicing (50 tasks/day). | `cumulative_tasks_openai.json` |
+| **Cell 5** | Pure-Python DFA Engine & Option Judge | Compiles state machines, programmatically resolves multi-answer ground-truth keys, checks regex language equivalence, and flags distractor leaks. | `baseline_tasks_resolved.json` |
+| **Cell 6** | Distractor Plausibility & Taxonomy Engine | Maps generated distractors against Okuboyejo et al. (2025) error categories (*Syntax*, *Slight*, *Logical*) and the *Machine Noise / Gibberish* bucket. | `final_evaluation_report.json` |
 
-## Important methodological note on Phase 1 for the LLM arm
+---
 
-As scaffolded, `synthesize_mcq` lets GPT-4o pick its own regex per
-complexity level (matching the brief's "generate 50 regex tasks" framing).
-That means Phase 1 currently checks internal consistency (does the model's
-`correct_string` actually match its own `regex`?) rather than agreement
-with a fixed target specification. If your protocol instead wants GPT-4o
-to synthesize distractors *for a target regex you supply* (arguably closer
-to "$\forall uto\exists val$-style" DFA equivalence checking against a
-ground truth), generate your 50 target patterns with `cfg_generator.py`
-first, then feed each target's pattern into a modified prompt and check
-`check_equivalence(target_pattern, llm_pattern)` -- the equivalence
-checker already supports this; only the prompt template needs a
-`target_regex` field added. This is a one-line prompt change and worth
-deciding explicitly for your methodology chapter, since it changes what
-"Consistency Rate" is actually measuring.
+## Primary Metrics & Definitions
 
-## Design notes for your write-up
+### 1. Consistency Rate (Formal Correctness)
+The percentage of LLM-generated MCQ items that satisfy both of the following formal verification conditions:
+1. **Regex Language Equivalence:** The LLM's synthesized regex $r_{\text{LLM}}$ accepts the exact same language as the target specification $r_{\text{target}}$ ($\text{L}(r_{\text{target}}) \Delta \text{L}(r_{\text{LLM}}) = \emptyset$).
+2. **Option Soundness:** Every string labeled as correct is accepted by the target DFA, and no distractor string is accepted by the target DFA (**Zero Distractor Leaks**).
 
-- **Why a hand-rolled regex-DFA engine instead of `automata-lib`/`greenery`**:
-  full control over the exact operator subset (matches the five
-  complexity levels), no dependency risk, and every step (Thompson
-  construction, subset construction, Moore minimization, product-automaton
-  equivalence) is inspectable/citable in a
-  methodology appendix.
-- **Equivalence via symmetric difference, not isomorphism**: isomorphism
-  checking is more fragile to implement correctly and isn't actually
-  what "same language" requires; symmetric-difference emptiness over the
-  product automaton is the standard proof technique and is what's
-  implemented here, with a returned counterexample string on failure
-  (useful for qualitative error analysis of *why* an LLM regex was wrong).
-- **`plausibility.py` is a heuristic first pass**, not a ground-truth
-  coder. Recommended protocol: run it over all distractors, then have a
-  human (or a second LLM-as-judge pass, clearly labelled as such in your
-  methodology) validate/adjust a sample, and report agreement.
-- **Time complexity**: `mcq_search.py`'s search is the O(n^3)-flavoured
-  cost cited in Ade-Ibijola (2018) as the symbolic baseline's bottleneck --
-  it's timed independently of CFG *generation* (which is linear) so your
-  efficiency comparison against GPT-4o isolates the right cost.
+$$\text{Consistency Rate} = \frac{\text{Number of Formally Valid MCQs}}{\text{Total Evaluated MCQs}} \times 100$$
+
+### 2. Plausibility Score (Pedagogical Quality)
+The percentage of LLM-generated distractor strings that reflect realistic student misconceptions documented in student error taxonomies, as opposed to unclassified machine noise.
+
+$$\text{Plausibility Score} = \frac{\text{Distractors Categorized as Syntax / Slight / Logical Errors}}{\text{Total Generated Distractor Strings}} \times 100$$
+
+### 3. Computational Efficiency
+- **Wall-Clock Latency:** Measured generation duration (seconds/item).
+- **Token Consumption Profile:** Input tokens (uncached vs. cached) and completion tokens.
+- **Estimated Financial Cost:** Transactional cost calculated per micro-cent ($USD / ZAR).
+
+---
+
+## Theoretical Operator Constraints
+To isolate the neural model's logical reasoning capabilities rather than its memorization of programming shorthand, models are strictly constrained to core Formal Languages and Automata (FLA) theoretical operators:
+- **Concatenation:** Implied (e.g., `ab`)
+- **Alternation / Union:** `|` or `+`
+- **Kleene Star:** `*`
+- **Kleene Plus:** `+`
+- **Optionality:** `?`
+- **Explicit Grouping:** Parentheses `( )`
+- *Prohibited:* Lookarounds, backreferences, anchors (`^`, `$`), and character class shorthand (`\d`, `\w`, `\s`).
+
+---
+
+## References & Literature Foundation
+- **Ade-Ibijola, A. (2018).** *Automatic synthesis of regular expression problems and solutions.*
+- **Karia, N., et al. (2024).** *Autonomous Assessment of LLMs in Formal Synthesis and Interpretation Tasks ($\forall uto\exists val$).*
+- **Okuboyejo, O., et al. (2025).** *Student Error Taxonomies in Regular Expression Learning and Assessment.*
